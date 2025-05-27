@@ -1,15 +1,17 @@
 // ==UserScript==
-// @name         Flickr: Resumo de Comentadores (Links + Header Fixo)
+// @name         Flickr: Resumo de Comentadores
 // @namespace    http://tampermonkey.net/
-// @version      0.2
-// @description  Mostra painel com resumo de comentadores com links e cabeçalho fixo, atualizando a cada 10 fotos
-// @match        https://www.flickr.com/photos/*/
+// @version      0.3
+// @description  Mostra painel com os comentadores ordenados pelo número de comentários feitos
+// @match        https://www.flickr.com/*
+// @match        https://flickr.com/*
 // @grant        none
 // ==/UserScript==
 
 (function () {
     'use strict';
 
+    // Configurações globais
     const STORAGE = {
         apiKey: 'flickr_api_key',
         darkMode: 'flickr_dark_mode',
@@ -17,6 +19,101 @@
         sortMode: 'flickr_sort_mode'
     };
 
+    // Elementos globais
+    let btn = null;
+    let panel = null;
+    let isRunning = false;
+    const validPathRegex = /^\/photos\/[^/]+(?:\/(?:with\/.+)?)?$/;
+
+    // Verificador de URL
+    function isValidPage() {
+        return validPathRegex.test(window.location.pathname);
+    }
+
+    // Limpeza dos elementos
+    function cleanUp() {
+        if (btn) {
+            btn.remove();
+            btn = null;
+        }
+        if (panel) {
+            panel.remove();
+            panel = null;
+        }
+        isRunning = false;
+    }
+
+    // Cria o botão inicial
+    function createStartButton() {
+        if (btn) return;
+
+        btn = document.createElement('button');
+        btn.textContent = '📊 Comentadores';
+        btn.style.position = 'fixed';
+        btn.style.top = '5px';
+        btn.style.left = '50%';
+        btn.style.transform = 'translateX(-50%)';
+        btn.style.zIndex = '9999';
+        btn.style.padding = '2px';
+        btn.style.background = '#0063dc';
+        btn.style.color = '#fff';
+        btn.style.border = 'none';
+        btn.style.borderRadius = '5px';
+        btn.style.cursor = 'pointer';
+        btn.style.maxWidth = '10vw';
+        btn.style.whiteSpace = 'nowrap';
+        btn.style.overflow = 'hidden';
+        btn.style.textOverflow = 'ellipsis';
+
+        btn.addEventListener('click', run);
+        document.body.appendChild(btn);
+    }
+
+    // Observador de mudanças de URL
+    function setupUrlObserver() {
+        let lastUrl = location.href;
+
+        // Observa mudanças a cada 500ms
+        setInterval(() => {
+            if (location.href !== lastUrl) {
+                lastUrl = location.href;
+                handleUrlChange();
+            }
+        }, 500);
+
+        // Captura navegações via History API
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+
+        history.pushState = function() {
+            originalPushState.apply(this, arguments);
+            handleUrlChange();
+        };
+
+        history.replaceState = function() {
+            originalReplaceState.apply(this, arguments);
+            handleUrlChange();
+        };
+
+        // Captura eventos de popstate (back/forward)
+        window.addEventListener('popstate', handleUrlChange);
+    }
+
+    // Manipulador de mudança de URL
+    function handleUrlChange() {
+        if (isValidPage()) {
+            console.log('isValidPage');
+            if (!btn) {
+                console.log('createButton');
+                createStartButton();
+            }
+        } else {
+            console.log('isNotValidPage=>CleanButton');
+            cleanUp();
+        }
+    }
+
+    // Funções auxiliares
     const log = (...args) => console.log('[FlickrResumo]', ...args);
 
     function getStored(key, fallback = null) {
@@ -39,16 +136,14 @@
 
     async function resolveUserId(apiKey) {
         const path = window.location.pathname;
-        const match = path.match(/^\/photos\/([^/]+)\/$/);
+        const match = path.match(/^\/photos\/([^/]+)(?:\/(?:with\/.+)?)?$/);
         if (!match) return null;
 
         const identifier = match[1];
         if (/^\d+@N\d+$/.test(identifier)) {
-            // É um NSID válido
             return identifier;
         }
 
-        // Caso contrário, tentar resolver via path alias
         const fullUrl = `https://www.flickr.com/photos/${identifier}/`;
         const url = `https://www.flickr.com/services/rest/?method=flickr.urls.lookupUser&api_key=${apiKey}&url=${encodeURIComponent(fullUrl)}&format=json&nojsoncallback=1`;
 
@@ -104,7 +199,7 @@
             });
         };
 
-        const panel = document.createElement("div");
+        panel = document.createElement("div");
         panel.style.position = "fixed";
         panel.style.width = "600px";
         panel.style.height = "400px";
@@ -154,8 +249,8 @@
         };
 
         const closeBtn = makeBtn("✖", "Fechar", () => {
-          panel.remove();
-          btn.disabled = false;          // abilita o botão
+            cleanUp();
+            if (btn) btn.disabled = false;
         });
         const darkBtn = makeBtn("🌙", "Alternar tema", () => {
             dark = !dark;
@@ -180,7 +275,6 @@
         progressContainer.style.fontSize = "0.85em";
         progressContainer.style.opacity = "0.9";
 
-        // Adicionando o smallSpinner (única modificação necessária)
         const smallSpinner = document.createElement("div");
         smallSpinner.style.width = "14px";
         smallSpinner.style.height = "14px";
@@ -252,7 +346,6 @@
         }
 
         function updateContent(processed = 0, total = totalPhotos) {
-            // Mostrar spinner grande apenas no início
             if (processed === 0 && Object.keys(dataMap).length === 0) {
                 bigSpinner.style.display = "block";
                 content.style.display = "none";
@@ -261,7 +354,6 @@
                 content.style.display = "grid";
             }
 
-            // Atualizar progresso e spinner pequeno
             if (processed > 0 && processed < total) {
                 smallSpinner.style.display = "block";
                 progressText.textContent = `A processar: ${processed} / ${total} fotos`;
@@ -275,7 +367,6 @@
 
             content.innerHTML = "";
 
-            // Cabeçalho fixo
             ['Utilizador', 'Comentários', 'Último comentário'].forEach(h => {
                 const el = document.createElement("div");
                 el.textContent = h;
@@ -344,72 +435,77 @@
     }
 
     async function run() {
-        const apiKey = getApiKey();
-        if (!apiKey) return;
+        if (!isValidPage()) return;
+        if (isRunning) return;
 
-        const nsid = await resolveUserId(apiKey);
-        if (!nsid) {
-            alert("❌ Não foi possível obter o ID do utilizador.");
-            return;
-        }
+        isRunning = true;
+        if (btn) btn.disabled = true;
 
-        const photos = await getPhotos(nsid, apiKey, 100, 2);
-        if (!photos.length) {
-            alert("⚠️ Sem fotos públicas.");
-            return;
-        }
+        try {
+            const apiKey = getApiKey();
+            if (!apiKey) {
+                cleanUp();
+                return;
+            }
 
-        btn.disabled = true;          // Desabilita o botão
-        const commenters = {};
-        const { updateContent } = createPanel(commenters, photos.length);
-        let updateCounter = 0;
+            const nsid = await resolveUserId(apiKey);
+            if (!nsid) {
+                alert("❌ Não foi possível obter o ID do utilizador.");
+                cleanUp();
+                return;
+            }
 
-        for (let i = 0; i < photos.length; i++) {
-            const photo = photos[i];
-            log(`💬 Comentários da foto ${i + 1}/${photos.length} (ID ${photo.id})...`);
-            const comments = await getComments(photo.id, apiKey);
+            const photos = await getPhotos(nsid, apiKey, 100, 2);
+            if (!photos.length) {
+                alert("⚠️ Sem fotos públicas.");
+                cleanUp();
+                return;
+            }
 
-            for (const { user, nsid, date } of comments) {
-                if (!commenters[user]) {
-                    commenters[user] = { count: 1, last: date, nsid };
-                } else {
-                    commenters[user].count++;
-                    if (date > commenters[user].last) {
-                        commenters[user].last = date;
+            const commenters = {};
+            const { updateContent } = createPanel(commenters, photos.length);
+            let updateCounter = 0;
+
+            for (let i = 0; i < photos.length; i++) {
+                if (!isValidPage()) {
+                    cleanUp();
+                    return;
+                }
+
+                const photo = photos[i];
+                log(`💬 Comentários da foto ${i + 1}/${photos.length} (ID ${photo.id})...`);
+                const comments = await getComments(photo.id, apiKey);
+
+                for (const { user, nsid, date } of comments) {
+                    if (!commenters[user]) {
+                        commenters[user] = { count: 1, last: date, nsid };
+                    } else {
+                        commenters[user].count++;
+                        if (date > commenters[user].last) {
+                            commenters[user].last = date;
+                        }
                     }
                 }
+
+                updateCounter++;
+                if (updateCounter >= 10 || i === photos.length - 1) {
+                    updateContent(i + 1, photos.length);
+                    updateCounter = 0;
+                }
+
+                await new Promise(r => setTimeout(r, 500));
             }
 
-            updateCounter++;
-            if (updateCounter >= 10 || i === photos.length - 1) {
-                updateContent(i + 1, photos.length);
-                updateCounter = 0;
-            }
-
-            await new Promise(r => setTimeout(r, 500));
+            log("📊 Resultado final:", commenters);
+        } catch (error) {
+            console.error("Erro durante execução:", error);
+            cleanUp();
         }
-
-        log("📊 Resultado final:", commenters);
     }
 
-    // Botão flutuante
-    const btn = document.createElement("button");
-    btn.textContent = "📊 Comentadores";
-    btn.style.position = "fixed";
-    btn.style.top = "5px";
-    btn.style.left = "50%";           // Centraliza a partir do lado esquerdo
-    btn.style.transform = "translateX(-50%)"; // Corrige o deslocamento
-    btn.style.zIndex = "9999";
-    btn.style.padding = "2px";
-    btn.style.background = "#0063dc";
-    btn.style.color = "#fff";
-    btn.style.border = "none";
-    btn.style.borderRadius = "5px";
-    btn.style.cursor = "pointer";
-    btn.style.maxWidth = "10vw";          // Máximo 10% da largura do ecrã
-    btn.style.whiteSpace = "nowrap";      // Impede quebra de linha
-    btn.style.overflow = "hidden";        // Esconde conteúdo que ultrapassar
-    btn.style.textOverflow = "ellipsis";  // Adiciona "..." se o texto for cortado
-    btn.onclick = run;
-    document.body.appendChild(btn);
+    // Inicialização
+    setupUrlObserver();
+    if (isValidPage()) {
+        createStartButton();
+    }
 })();
