@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Flickr: Resumo de Comentadores (Links + Header Fixo)
 // @namespace    http://tampermonkey.net/
-// @version      4.1
+// @version      0.1
 // @description  Mostra painel com resumo de comentadores com links e cabeçalho fixo
 // @match        https://www.flickr.com/photos/*/
 // @grant        none
