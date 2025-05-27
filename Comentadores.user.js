@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Flickr: Resumo de Comentadores (Links + Header Fixo)
 // @namespace    http://tampermonkey.net/
-// @version      0.1
-// @description  Mostra painel com resumo de comentadores com links e cabeçalho fixo
+// @version      0.2
+// @description  Mostra painel com resumo de comentadores com links e cabeçalho fixo, atualizando a cada 10 fotos
 // @match        https://www.flickr.com/photos/*/
 // @grant        none
 // ==/UserScript==
@@ -61,16 +61,9 @@
         }
     }
 
-
     async function fetchJSON(url) {
         const res = await fetch(url);
         return res.json();
-    }
-
-    async function getNSID(username, apiKey) {
-        const url = `https://www.flickr.com/services/rest/?method=flickr.people.findByUsername&api_key=${apiKey}&username=${encodeURIComponent(username)}&format=json&nojsoncallback=1`;
-        const data = await fetchJSON(url);
-        return data.user?.nsid || null;
     }
 
     async function getPhotos(userId, apiKey, perPage = 100, maxPages = 2) {
@@ -101,7 +94,7 @@
         return date.toISOString().split("T")[0];
     }
 
-    function createPanel(dataMap) {
+    function createPanel(dataMap, totalPhotos) {
         let sortBy = getStored(STORAGE.sortMode, 'count');
 
         const sorted = () => {
@@ -115,7 +108,7 @@
         panel.style.position = "fixed";
         panel.style.width = "600px";
         panel.style.height = "400px";
-        panel.style.overflow = "auto";
+        panel.style.overflow = "auto hidden";
         panel.style.resize = "both";
         panel.style.zIndex = "10000";
         panel.style.border = "2px solid #0063dc";
@@ -129,14 +122,24 @@
 
         let dark = getStored(STORAGE.darkMode, false);
 
+        // Cabeçalho
         const header = document.createElement("div");
-        header.textContent = "Resumo de Comentadores";
         header.style.background = "#0063dc";
         header.style.color = "#fff";
         header.style.padding = "6px 10px";
         header.style.cursor = "move";
         header.style.display = "flex";
-        header.style.justifyContent = "space-between";
+        header.style.flexDirection = "column";
+        header.style.gap = "4px";
+
+        const titleRow = document.createElement("div");
+        titleRow.style.display = "flex";
+        titleRow.style.justifyContent = "space-between";
+        titleRow.style.alignItems = "center";
+
+        const titleSpan = document.createElement("span");
+        titleSpan.textContent = "Resumo de Comentadores";
+        titleRow.appendChild(titleSpan);
 
         const controls = document.createElement("div");
 
@@ -150,7 +153,10 @@
             return btn;
         };
 
-        const closeBtn = makeBtn("✖", "Fechar", () => panel.remove());
+        const closeBtn = makeBtn("✖", "Fechar", () => {
+          panel.remove();
+          btn.disabled = false;          // abilita o botão
+        });
         const darkBtn = makeBtn("🌙", "Alternar tema", () => {
             dark = !dark;
             setStored(STORAGE.darkMode, dark);
@@ -163,9 +169,55 @@
         });
 
         [sortBtn, darkBtn, closeBtn].forEach(btn => controls.appendChild(btn));
-        header.appendChild(controls);
+        titleRow.appendChild(controls);
+        header.appendChild(titleRow);
+
+        // Progresso no header
+        const progressContainer = document.createElement("div");
+        progressContainer.style.display = "flex";
+        progressContainer.style.alignItems = "center";
+        progressContainer.style.gap = "8px";
+        progressContainer.style.fontSize = "0.85em";
+        progressContainer.style.opacity = "0.9";
+
+        // Adicionando o smallSpinner (única modificação necessária)
+        const smallSpinner = document.createElement("div");
+        smallSpinner.style.width = "14px";
+        smallSpinner.style.height = "14px";
+        smallSpinner.style.border = "2px solid rgba(255,255,255,0.3)";
+        smallSpinner.style.borderRadius = "50%";
+        smallSpinner.style.borderTop = "2px solid #fff";
+        smallSpinner.style.animation = "spin 1s linear infinite";
+        smallSpinner.style.display = "none";
+
+        const progressText = document.createElement("span");
+        progressContainer.appendChild(smallSpinner);
+        progressContainer.appendChild(progressText);
+        header.appendChild(progressContainer);
+
         panel.appendChild(header);
 
+        // Container principal
+        const mainContainer = document.createElement("div");
+        mainContainer.style.position = "relative";
+        mainContainer.style.height = "calc(100% - 60px)";
+        mainContainer.style.overflow = "auto";
+
+        // Spinner grande central
+        const bigSpinner = document.createElement("div");
+        bigSpinner.style.position = "absolute";
+        bigSpinner.style.top = "50%";
+        bigSpinner.style.left = "50%";
+        bigSpinner.style.transform = "translate(-50%, -50%)";
+        bigSpinner.style.width = "60px";
+        bigSpinner.style.height = "60px";
+        bigSpinner.style.border = "6px solid rgba(0,99,220,0.2)";
+        bigSpinner.style.borderRadius = "50%";
+        bigSpinner.style.borderTop = "6px solid #0063dc";
+        bigSpinner.style.animation = "spin 1s linear infinite";
+        bigSpinner.style.display = "none";
+
+        // Conteúdo
         const content = document.createElement("div");
         content.style.padding = "10px";
         content.style.display = "grid";
@@ -173,19 +225,57 @@
         content.style.gap = "8px";
         content.style.alignItems = "center";
         content.style.fontSize = "14px";
+        content.style.minHeight = "100%";
 
-        panel.appendChild(content);
+        // Adicionar animação
+        const style = document.createElement("style");
+        style.textContent = `
+            @keyframes spin {
+                0% { transform: translate(-50%, -50%) rotate(0deg); }
+                100% { transform: translate(-50%, -50%) rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        mainContainer.appendChild(bigSpinner);
+        mainContainer.appendChild(content);
+        panel.appendChild(mainContainer);
         document.body.appendChild(panel);
 
         function applyTheme() {
             panel.style.background = dark ? "#1e1e1e" : "#fff";
             panel.style.color = dark ? "#ccc" : "#000";
+            bigSpinner.style.border = dark ? "6px solid rgba(170,170,221,0.2)" : "6px solid rgba(0,99,220,0.2)";
+            bigSpinner.style.borderTop = dark ? "6px solid #aad" : "6px solid #0063dc";
+            smallSpinner.style.border = dark ? "2px solid rgba(170,170,221,0.3)" : "2px solid rgba(255,255,255,0.3)";
+            smallSpinner.style.borderTop = dark ? "2px solid #aad" : "2px solid #fff";
         }
 
-        function updateContent() {
+        function updateContent(processed = 0, total = totalPhotos) {
+            // Mostrar spinner grande apenas no início
+            if (processed === 0 && Object.keys(dataMap).length === 0) {
+                bigSpinner.style.display = "block";
+                content.style.display = "none";
+            } else {
+                bigSpinner.style.display = "none";
+                content.style.display = "grid";
+            }
+
+            // Atualizar progresso e spinner pequeno
+            if (processed > 0 && processed < total) {
+                smallSpinner.style.display = "block";
+                progressText.textContent = `A processar: ${processed} / ${total} fotos`;
+            } else if (processed > 0) {
+                smallSpinner.style.display = "none";
+                progressContainer.style.display = "none";
+            } else {
+                smallSpinner.style.display = "none";
+                progressText.textContent = "";
+            }
+
             content.innerHTML = "";
 
-            // cabeçalho fixo
+            // Cabeçalho fixo
             ['Utilizador', 'Comentários', 'Último comentário'].forEach(h => {
                 const el = document.createElement("div");
                 el.textContent = h;
@@ -225,14 +315,18 @@
         applyTheme();
         updateContent();
 
-        // arrastar
+        // Função de arrastar
         let dragging = false, offsetX = 0, offsetY = 0;
-        header.onmousedown = e => {
+
+        titleRow.onmousedown = e => {
+            if (e.target.tagName === 'BUTTON') return;
+
             dragging = true;
             offsetX = e.clientX - panel.offsetLeft;
             offsetY = e.clientY - panel.offsetTop;
             e.preventDefault();
         };
+
         document.onmousemove = e => {
             if (dragging) {
                 panel.style.left = (e.clientX - offsetX) + 'px';
@@ -243,7 +337,10 @@
                 });
             }
         };
+
         document.onmouseup = () => dragging = false;
+
+        return { updateContent };
     }
 
     async function run() {
@@ -256,19 +353,22 @@
             return;
         }
 
-
         const photos = await getPhotos(nsid, apiKey, 100, 2);
         if (!photos.length) {
             alert("⚠️ Sem fotos públicas.");
             return;
         }
 
+        btn.disabled = true;          // Desabilita o botão
         const commenters = {};
+        const { updateContent } = createPanel(commenters, photos.length);
+        let updateCounter = 0;
 
         for (let i = 0; i < photos.length; i++) {
             const photo = photos[i];
             log(`💬 Comentários da foto ${i + 1}/${photos.length} (ID ${photo.id})...`);
             const comments = await getComments(photo.id, apiKey);
+
             for (const { user, nsid, date } of comments) {
                 if (!commenters[user]) {
                     commenters[user] = { count: 1, last: date, nsid };
@@ -279,26 +379,37 @@
                     }
                 }
             }
+
+            updateCounter++;
+            if (updateCounter >= 10 || i === photos.length - 1) {
+                updateContent(i + 1, photos.length);
+                updateCounter = 0;
+            }
+
             await new Promise(r => setTimeout(r, 500));
         }
 
         log("📊 Resultado final:", commenters);
-        createPanel(commenters);
     }
 
-    // botão flutuante
+    // Botão flutuante
     const btn = document.createElement("button");
     btn.textContent = "📊 Comentadores";
     btn.style.position = "fixed";
-    btn.style.top = "10px";
-    btn.style.right = "10px";
+    btn.style.top = "5px";
+    btn.style.left = "50%";           // Centraliza a partir do lado esquerdo
+    btn.style.transform = "translateX(-50%)"; // Corrige o deslocamento
     btn.style.zIndex = "9999";
-    btn.style.padding = "10px";
+    btn.style.padding = "2px";
     btn.style.background = "#0063dc";
     btn.style.color = "#fff";
     btn.style.border = "none";
     btn.style.borderRadius = "5px";
     btn.style.cursor = "pointer";
+    btn.style.maxWidth = "10vw";          // Máximo 10% da largura do ecrã
+    btn.style.whiteSpace = "nowrap";      // Impede quebra de linha
+    btn.style.overflow = "hidden";        // Esconde conteúdo que ultrapassar
+    btn.style.textOverflow = "ellipsis";  // Adiciona "..." se o texto for cortado
     btn.onclick = run;
     document.body.appendChild(btn);
 })();
