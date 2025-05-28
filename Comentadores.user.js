@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Flickr: Resumo de Comentadores
 // @namespace    http://tampermonkey.net/
-// @version      0.3
+// @version      0.4
 // @description  Mostra painel com os comentadores ordenados pelo número de comentários feitos
 // @match        https://www.flickr.com/*
 // @match        https://flickr.com/*
@@ -180,6 +180,7 @@
         const data = await fetchJSON(url);
         return (data.comments?.comment || []).map(c => ({
             user: c.authorname,
+            username: c.realname || c.authorname,
             nsid: c.author,
             date: new Date(parseInt(c.datecreate, 10) * 1000)
         }));
@@ -379,7 +380,7 @@
             });
 
             sorted().forEach(([user, info]) => {
-                content.appendChild(userLink(user, info.nsid));
+                content.appendChild(userLink(info.username, info.nsid));
                 content.appendChild(el(info.count));
                 content.appendChild(el(formatDate(info.last)));
             });
@@ -476,9 +477,9 @@
                 log(`💬 Comentários da foto ${i + 1}/${photos.length} (ID ${photo.id})...`);
                 const comments = await getComments(photo.id, apiKey);
 
-                for (const { user, nsid, date } of comments) {
+                for (const { user, username, nsid, date } of comments) {
                     if (!commenters[user]) {
-                        commenters[user] = { count: 1, last: date, nsid };
+                        commenters[user] = { count: 1, last: date, nsid, username };
                     } else {
                         commenters[user].count++;
                         if (date > commenters[user].last) {
