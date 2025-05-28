@@ -1,8 +1,9 @@
 // ==UserScript==
-// @name         Flickr: Resumo de Comentadores
+// @name         Flickr: Commenters Summary
 // @namespace    http://tampermonkey.net/
-// @version      0.4
-// @description  Mostra painel com os comentadores ordenados pelo número de comentários feitos
+// @version      0.5
+// @author       Isidro Vila Verde
+// @description  Displays a panel showing commenters sorted by the number of comments made
 // @match        https://www.flickr.com/*
 // @match        https://flickr.com/*
 // @grant        none
